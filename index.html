@@ -2393,5 +2393,118 @@
 
     applyLanguage(currentLang);
   </script>
+  <script>
+  // ضعي هنا رابط تطبيق الويب (Web App URL) الجديد الخاص بـ Apps Script الذي ينتهي بـ /exec
+  const WELL_CORE_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyZiBru7PZb8dNGbzljsfGBkYiaux_GFNa7o-HRqh8uS49AY6ANbT8tPvevnPoltbr3/exec';
+
+  // 1. تحديد مصدر الزيارة تلقائياً من رابط البايو (?utm_source=instagram / tiktok / facebook / whatsapp)
+  function getTrafficSource() {
+    const params = new URLSearchParams(window.location.search);
+    const utm = (params.get('utm_source') || '').toLowerCase().trim();
+    const map = {
+      instagram: 'إنستغرام', ig: 'إنستغرام',
+      facebook: 'فيسبوك', fb: 'فيسبوك',
+      tiktok: 'تيك توك', tt: 'تيك توك',
+      whatsapp: 'واتساب', wa: 'واتساب'
+    };
+    return map[utm] || 'الموقع الإلكتروني';
+  }
+
+  const DETECTED_SOURCE = getTrafficSource();
+
+  // 2. تسجيل زيارة صفحة الهبوط مرة واحدة لكل جلسة
+  (function trackLandingVisit() {
+    if (!WELL_CORE_WEBHOOK_URL.startsWith('http')) return;
+    if (sessionStorage.getItem('wellcore_visit_tracked')) return;
+    sessionStorage.setItem('wellcore_visit_tracked', '1');
+
+    fetch(WELL_CORE_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'track_event',
+        source: DETECTED_SOURCE,
+        eventName: 'زيارة صفحة الهبوط',
+        views: 1,
+        cartAdds: 0
+      })
+    }).catch(() => {});
+  })();
+
+  // 3. ربط تلقائي بزر الإضافة للسلة (يراقب أي تحديث على saveCart)
+  if (typeof saveCart === 'function') {
+    const originalSaveCart = saveCart;
+    let prevTotalQty = Array.isArray(cart) ? cart.reduce((s, i) => s + Number(i.qty || 1), 0) : 0;
+
+    window.saveCart = function () {
+      originalSaveCart.apply(this, arguments);
+      if (!WELL_CORE_WEBHOOK_URL.startsWith('http') || !Array.isArray(cart)) return;
+
+      const newTotalQty = cart.reduce((s, i) => s + Number(i.qty || 1), 0);
+      if (newTotalQty > prevTotalQty && cart.length > 0) {
+        const lastItem = cart[cart.length - 1];
+        fetch(WELL_CORE_WEBHOOK_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'track_event',
+            source: DETECTED_SOURCE,
+            eventName: 'إضافة إلى السلة: ' + (lastItem.nameAr || lastItem.name || 'منتج'),
+            views: 0,
+            cartAdds: 1
+          })
+        }).catch(() => {});
+      }
+      prevTotalQty = newTotalQty;
+    };
+  }
+
+  // 4. ربط تلقائي بنموذج إتمام الطلب داخل checkoutModal
+  document.addEventListener('submit', function (e) {
+    const modal = document.getElementById('checkoutModal');
+    if (!modal || !modal.contains(e.target)) return;
+    if (!WELL_CORE_WEBHOOK_URL.startsWith('http')) return;
+    if (!Array.isArray(cart) || cart.length === 0) return;
+
+    const form = e.target;
+    const inputs = Array.from(form.querySelectorAll('input, select, textarea'));
+    
+    const getVal = (keywords, fallbackIndex) => {
+      const found = inputs.find(el => {
+        const attr = ((el.id || '') + ' ' + (el.name || '') + ' ' + (el.placeholder || '')).toLowerCase();
+        return keywords.some(k => attr.includes(k));
+      });
+      return found ? found.value.trim() : (inputs[fallbackIndex] ? inputs[fallbackIndex].value.trim() : '');
+    };
+
+    const payload = {
+      action: 'create_order',
+      source: DETECTED_SOURCE,
+      customer: {
+        name: getVal(['name', 'الاسم', 'اسم'], 0) || 'زبونة الموقع',
+        phone: getVal(['phone', 'tel', 'هاتف', 'رقم'], 1) || '',
+        city: getVal(['city', 'المدينة', 'مدينة'], 2) || 'طرابلس',
+        address: getVal(['address', 'العنوان', 'عنوان', 'منطقة'], 3) || ''
+      },
+      payment: getVal(['payment', 'دفع', 'الدفع'], 4) || 'دفع عند الاستلام',
+      deliveryFee: 0,
+      notes: getVal(['note', 'ملاحظ', 'notes'], 5) || '',
+      items: cart.map(item => ({
+        nameAr: item.nameAr || item.name || item.title,
+        qty: Number(item.qty || item.quantity || 1),
+        price: Number(item.price || 0)
+      }))
+    };
+
+    fetch(WELL_CORE_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  }, true);
+</script>
 </body>
 </html>
