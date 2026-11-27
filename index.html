@@ -2505,5 +2505,21 @@
 
     applyLanguage(currentLang);
   </script>
+  <script>
+  const WELL_CORE_ORDERS_URL = "https://script.google.com/macros/s/AKfycbx41sgIOo6OaPTVQxlMQ5Jdae2zPXkGpor7XQo5dmKpzp6SVfEuF-4OrTAh26Evrk3J/exec";
+
+  window.sendOrderToWellCoreSheet = async function(orderPayload) {
+    if (!WELL_CORE_ORDERS_URL) return { ok: false };
+
+    await fetch(WELL_CORE_ORDERS_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(orderPayload)
+    });
+
+    return { ok: true };
+  };
+</script>
 </body>
 </html>
